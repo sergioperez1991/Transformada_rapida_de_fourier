@@ -1,0 +1,123 @@
+import cmath
+import numpy as np
+import matplotlib.pyplot as plt
+import soundfile as sf
+from scipy.signal import butter, lfilter
+
+def fft(x):
+    """
+    Calcula la Transformada Rápida de Fourier (FFT) de manera recursiva.
+    
+    Parámetros:
+    x (list): Señal de entrada.
+
+    Retorna:
+    list: Componentes de frecuencia de la señal.
+    
+    Excepciones:
+    ValueError: Si el tamaño de x no es una potencia de 2.
+    """
+    N = len(x)
+    if N == 0 or (N & (N - 1)) != 0:
+        raise ValueError("El tamaño de x debe ser una potencia de 2")
+    if N <= 1:
+        return x
+    else:
+        even = fft(x[0::2])
+        odd = fft(x[1::2])
+        T = [cmath.exp(-2j * cmath.pi * k / N) * odd[k] for k in range(N // 2)]
+        return [even[k] + T[k] for k in range(N // 2)] + [even[k] - T[k] for k in range(N // 2)]
+
+def ifft(x):
+    """
+    Calcula la Transformada Inversa de Fourier (IFFT) de manera recursiva.
+    
+    Parámetros:
+    x (list): Componentes de frecuencia.
+
+    Retorna:
+    list: Señal de tiempo reconstruida.
+    """
+    N = len(x)
+    if N <= 1:
+        return x
+    else:
+        even = ifft(x[0::2])
+        odd = ifft(x[1::2])
+        T = [cmath.exp(2j * cmath.pi * k / N) * odd[k] for k in range(N // 2)]
+        return [(even[k] + T[k]) / 2 for k in range(N // 2)] + [(even[k] - T[k]) / 2 for k in range(N // 2)]
+
+def butter_lowpass(cutoff, fs, order=5):
+    """
+    Crea un filtro Butterworth pasabajas.
+
+    Parámetros:
+    cutoff (float): Frecuencia de corte del filtro en Hz.
+    fs (int): Frecuencia de muestreo en Hz.
+    order (int): Orden del filtro.
+
+    Retorna:
+    tuple: Numerador (b) y denominador (a) de la función de transferencia del filtro.
+    """
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return b, a
+
+def butter_lowpass_filter(data, cutoff, fs, order=5):
+    """
+    Aplica un filtro pasabajas a la señal.
+
+    Parámetros:
+    data (ndarray): Datos de la señal.
+    cutoff (float): Frecuencia de corte del filtro en Hz.
+    fs (int): Frecuencia de muestreo en Hz.
+    order (int): Orden del filtro.
+
+    Retorna:
+    ndarray: Señal filtrada.
+    """
+    b, a = butter_lowpass(cutoff, fs, order=order)
+    y = lfilter(b, a, data)
+    return y
+
+# Carga del archivo de audio
+filename = 'extracted_audio.wav'
+data, samplerate = sf.read(filename)
+data = data[:, 0] if data.ndim > 1 else data  # Utilizar el primer canal si es estéreo
+
+# Asegurarse de que los datos son potencia de dos
+n = len(data)
+if (n & (n - 1)) != 0:
+    next_pow2 = 1 << (n.bit_length())
+    data = np.pad(data, (0, next_pow2 - n), mode='constant')
+
+# FFT
+transformed = fft(data)
+
+# Eje de frecuencias
+freq = np.linspace(0, samplerate, len(transformed))
+
+# Gráfico de las frecuencias originales
+plt.figure()
+plt.plot(freq[:len(freq)//2], np.abs(transformed)[:len(freq)//2])  # Graficar solo la primera mitad
+plt.title('Espectro de Frecuencia Original')
+plt.xlabel('Frecuencia (Hz)')
+plt.ylabel('Amplitud')
+plt.show()
+
+# Aplicar filtro pasabajas
+cutoff_frequency = 3000  # Frecuencia de corte de 3000 Hz
+filtered = butter_lowpass_filter(transformed, cutoff_frequency, samplerate, order=6)
+
+# IFFT
+reconstructed_signal = ifft(filtered)
+
+# Convertir de vuelta a valores reales
+reconstructed_signal = np.real(reconstructed_signal)
+
+# Guardar el archivo de audio resultante
+output_filename = 'output_audio.wav'
+sf.write(output_filename, reconstructed_signal, samplerate)
+
+print("Procesamiento de audio completado.")
